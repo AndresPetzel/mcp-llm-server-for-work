@@ -1,79 +1,100 @@
 # --- Importaciones Principales ---
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel # Importamos BaseModel
+from pydantic import BaseModel
 from mcp.server.fastmcp import FastMCP
-import httpx # Aunque no lo usemos directamente ahora, es bueno tenerlo
+import httpx
 from typing import Any, Dict
-import os # Para leer variables de entorno (como API keys)
+import os
 
 # --- Importaciones de LLMs y APIs ---
-
-# Google Gemini (Importado por precaución)
 import google.generativeai as genai
-
-# OpenAI (ChatGPT - ¡Esta es la que usaremos principalmente!)
 from openai import AsyncOpenAI
-
-# Anthropic (Claude - Importado por precaución)
 from anthropic import AsyncAnthropic
+
+# --- Importaciones para Google Secret Manager ---
+from google.cloud import secretmanager
+import google.auth
+
+# --------------------------------------------------------------------------
+# 0. FUNCIÓN PARA OBTENER SECRETOS DE GOOGLE SECRET MANAGER
+# --------------------------------------------------------------------------
+def get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> str | None:
+    """Obtiene el valor de un secreto desde Google Secret Manager."""
+    if not project_id or project_id == "PON_AQUI_TU_GCP_PROJECT_ID":
+         print(f"ERROR CRÍTICO: GCP_PROJECT_ID no está configurado en el código.")
+         return None
+    try:
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_id}/versions/{version_id}"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+    except google.auth.exceptions.DefaultCredentialsError as e:
+        print(f"ERROR: Credenciales de GCP no encontradas o inválidas: {e}. "
+              "Verifica rol 'Secret Manager Secret Accessor'.")
+        return None
+    except Exception as e:
+        print(f"ERROR: No se pudo obtener el secreto '{secret_id}': {e}")
+        return None
+
+# --- ¡¡¡IMPORTANTE!!! REEMPLAZA ESTO CON TU PROJECT ID ---
+GCP_PROJECT_ID = "PON_AQUI_TU_GCP_PROJECT_ID"
+
 
 # --------------------------------------------------------------------------
 # 1. CREAR LAS APLICACIONES
 # --------------------------------------------------------------------------
 app = FastAPI(
     title="Mi Servidor MCP Unificado para LLMs",
-    description="Un servidor HTTP que expone una herramienta genérica para llamar a varios LLMs compatibles con API OpenAI."
+    description="Un servidor HTTP que expone una herramienta genérica para llamar a varios LLMs."
 )
 mcp = FastMCP("llm-unified-tools")
 
 # --------------------------------------------------------------------------
-# 2. CONFIGURACIÓN DE PROVEEDORES Y API KEYS
+# 2. CONFIGURACIÓN DE PROVEEDORES Y API KEYS (Usando Secret Manager)
 # --------------------------------------------------------------------------
-# Define la estructura de proveedores (puedes añadir más)
 providers_config = {
     "groq": {
-        "api_key": os.environ.get("GROQ_API_KEY"),
+        "api_key": get_secret(GCP_PROJECT_ID, "GROQ_API_KEY"), # Reemplaza ID
         "base_url": "https://api.groq.com/openai/v1",
     },
     "openrouter": {
-        "api_key": os.environ.get("OPENROUTER_API_KEY"),
+        "api_key": get_secret(GCP_PROJECT_ID, "OPENROUTER_API_KEY"), # Reemplaza ID
         "base_url": "https://openrouter.ai/api/v1",
     },
     "gemini": {
-        "api_key": os.environ.get("GEMINI_API_KEY"),
-        # Verifica la URL compatible con OpenAI correcta en la documentación de Google
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/", # OJO: Esta URL puede requerir ajustes
+        "api_key": get_secret(GCP_PROJECT_ID, "GEMINI_API_KEY"), # Reemplaza ID
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/", # OJO: URL por verificar
     },
     "openai": {
-        "api_key": os.environ.get("OPENAI_API_KEY"),
-        "base_url": None, # Usa la URL por defecto de OpenAI
+        "api_key": get_secret(GCP_PROJECT_ID, "OPENAI_API_KEY"), # Reemplaza ID
+        "base_url": None,
+    },
+    "perplexity": {
+        "api_key": get_secret(GCP_PROJECT_ID, "PERPLEXITY_API_KEY"), # ¡¡¡Crea y reemplaza ID!!!
+        "base_url": "https://api.perplexity.ai",
     }
-    # Añade aquí otros proveedores compatibles con API OpenAI
+    # Añade aquí otros proveedores
 }
 
-# Validar que al menos las claves estén presentes
-for name, config in providers_config.items():
-    if not config["api_key"]:
-        print(f"ADVERTENCIA: API Key para '{name}' no encontrada en las variables de entorno.")
+# --- Configuración Específica (Opcional) ---
+# (Se mantiene igual, obteniendo claves con get_secret si es necesario)
+gemini_api_key_direct = get_secret(GCP_PROJECT_ID, "GEMINI_API_KEY")
+if gemini_api_key_direct:
+    try: genai.configure(api_key=gemini_api_key_direct)
+    except Exception as e: print(f"Error al configurar genai: {e}")
+else: pass
 
-# Configuración específica de Gemini (si la usaras directamente - OPCIONAL)
-# gemini_api_key_direct = os.environ.get("GEMINI_API_KEY")
-# if gemini_api_key_direct:
-#     genai.configure(api_key=gemini_api_key_direct)
-
-# Configuración específica de Anthropic (si la usaras directamente - OPCIONAL)
-# anthropic_api_key_direct = os.environ.get("ANTHROPIC_API_KEY")
-# if anthropic_api_key_direct:
-#     anthropic_client_direct = AsyncAnthropic(api_key=anthropic_api_key_direct)
-# else:
-#     anthropic_client_direct = None
+anthropic_api_key_direct = get_secret(GCP_PROJECT_ID, "anthropic-api-key-secret-id") # Necesitarás crear este secreto
+if anthropic_api_key_direct:
+    try: anthropic_client_direct = AsyncAnthropic(api_key=anthropic_api_key_direct)
+    except Exception as e: print(f"Error al configurar Anthropic: {e}"); anthropic_client_direct = None
+else: anthropic_client_direct = None
 
 
 # --------------------------------------------------------------------------
 # 3. DEFINICIÓN DE LA HERRAMIENTA MCP Y ENDPOINT HTTP
 # --------------------------------------------------------------------------
 
-# --- Herramienta Genérica para LLMs (usando API compatible OpenAI) ---
 @mcp.tool()
 async def call_llm(
     provider_name: str,
@@ -82,12 +103,13 @@ async def call_llm(
     system_message: str = "Eres un asistente útil.",
     temperature: float = 0.7
 ) -> str:
-    """
-    Llama a un LLM a través de un proveedor específico compatible con la API de OpenAI.
-    """
+    """Llama a un LLM compatible con API OpenAI."""
+    provider_name = provider_name.lower() # Asegura minúsculas
     if provider_name not in providers_config or not providers_config[provider_name].get("api_key"):
-        # Usamos ValueError aquí porque es un error de lógica interna, no de petición HTTP
-        raise ValueError(f"Proveedor '{provider_name}' no válido o API key no configurada.")
+        api_key_value = providers_config.get(provider_name, {}).get("api_key")
+        if not api_key_value:
+             print(f"ADVERTENCIA INTERNA: API Key para '{provider_name}' no fue obtenida o no configurada.")
+             raise ValueError(f"Proveedor '{provider_name}' no válido o API key no configurada/accesible.")
 
     selected_provider = providers_config[provider_name]
     api_key = selected_provider["api_key"]
@@ -95,16 +117,17 @@ async def call_llm(
 
     # Determinar modelo
     if model_name == "default":
-        # Establecer modelos por defecto (ejemplos)
-        if provider_name == "groq": model_to_use = "llama3-8b-8192"
+        # Establecer modelos por defecto
+        if provider_name == "groq": model_to_use = "llama-3.1-8b-instant"
         elif provider_name == "openrouter": model_to_use = "mistralai/mistral-7b-instruct:free"
-        elif provider_name == "gemini": model_to_use = "gemini-pro" # Verificar compatibilidad
+        elif provider_name == "gemini": model_to_use = "gemini-pro"
         elif provider_name == "openai": model_to_use = "gpt-4o-mini"
+        elif provider_name == "perplexity": model_to_use = "llama-3.1-sonar-small-128k-online" # <-- ¡MODELO ACTUALIZADO AQUÍ!
         else: raise ValueError(f"Modelo por defecto no definido para '{provider_name}'.")
     else:
         model_to_use = model_name
 
-    # Configurar cliente OpenAI para el proveedor
+    # Configurar cliente OpenAI
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     try:
@@ -116,39 +139,36 @@ async def call_llm(
             ],
             temperature=temperature,
         )
-        # Extraer respuesta
         if response.choices and response.choices[0].message:
             return response.choices[0].message.content or f"Respuesta vacía de {provider_name}."
         else:
             return f"Error: No se recibió respuesta válida de {provider_name}."
-    # Capturamos Exception genérica aquí, pero levantamos HTTPException para que FastAPI lo maneje
     except Exception as e:
-        print(f"Error detallado llamando a {provider_name} ({model_to_use}): {e}") # Log para nosotros
-        # Devolvemos un error HTTP claro al cliente (n8n)
-        raise HTTPException(status_code=503, detail=f"Error al contactar al proveedor {provider_name}: {str(e)}")
+        print(f"Error detallado llamando a {provider_name} ({model_to_use}): {e}")
+        # Intenta dar un mensaje de error más específico si es posible
+        error_detail = str(e)
+        if "authentication" in error_detail.lower():
+             raise HTTPException(status_code=401, detail=f"Error de autenticación con {provider_name}. Verifica la API Key.")
+        elif "rate limit" in error_detail.lower():
+             raise HTTPException(status_code=429, detail=f"Límite de peticiones excedido con {provider_name}.")
+        else:
+             raise HTTPException(status_code=503, detail=f"Error al contactar al proveedor {provider_name}: {error_detail}")
     finally:
-        # Aseguramos cerrar el cliente asíncrono
         await client.close()
 
-# --- Modelo Pydantic para la entrada ---
+# --- Modelo Pydantic (sin cambios) ---
 class LLMRequestPayload(BaseModel):
     provider_name: str
     prompt: str
-    model_name: str = "default" # Valor por defecto
-    system_message: str = "Eres un asistente útil." # Valor por defecto
-    temperature: float = 0.7 # Valor por defecto
+    model_name: str = "default"
+    system_message: str = "Eres un asistente útil."
+    temperature: float = 0.7
 
-# --- Endpoint HTTP para n8n (¡VERSIÓN CORREGIDA!) ---
+# --- Endpoint HTTP (sin cambios en la lógica, solo usa la función actualizada) ---
 @app.post("/tools/call_llm", summary="Llamar a un LLM genérico")
-async def http_call_llm(payload: LLMRequestPayload): # Usa el modelo Pydantic
-    """
-    Endpoint HTTP genérico para llamar a LLMs (API compatible OpenAI).
-    Espera JSON que coincida con LLMRequestPayload.
-    Devuelve: {"result": "Texto generado"} o {"detail": "Mensaje de error"}
-    """
-    # El bloque try/except ahora está aquí, envolviendo la llamada a call_llm
+async def http_call_llm(payload: LLMRequestPayload):
+    """Endpoint HTTP genérico para llamar a LLMs (API compatible OpenAI)."""
     try:
-        # Llama a la función principal con los datos validados por Pydantic
         result = await call_llm(
             provider_name=payload.provider_name,
             prompt=payload.prompt,
@@ -157,26 +177,18 @@ async def http_call_llm(payload: LLMRequestPayload): # Usa el modelo Pydantic
             temperature=payload.temperature
         )
         return {"result": result}
-    except ValueError as e: # Captura errores de validación de call_llm (ej. proveedor inválido)
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException as e: # Re-lanza errores HTTP que ocurrieron dentro de call_llm
+    except HTTPException as e:
         raise e
-    except Exception as e: # Captura cualquier otro error inesperado
-        print(f"Error inesperado en http_call_llm: {e}") # Log del error en el servidor
+    except Exception as e:
+        print(f"Error inesperado en http_call_llm: {e}")
         raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
 
-
-# --- Ruta Raíz ---
+# --- Ruta Raíz (sin cambios) ---
 @app.get("/")
 def read_root():
-    return {"message": "Servidor MCP Unificado para LLMs está funcionando."}
+    return {"message": "Servidor MCP Unificado para LLMs está funcionando (con Secret Manager)."}
 
-# --- Opcional: Si necesitaras usar las bibliotecas específicas directamente ---
-# Podrías añadir otras funciones @mcp.tool() y @app.post() aquí
-# que usen 'genai' o 'anthropic_client_direct' si la API compatible
-# no fuera suficiente para alguna tarea muy específica.
-
-# --- Opcional: Montar el router MCP si quieres exponer las definiciones ---
-# Si un cliente MCP necesita ver la *definición* de las herramientas
-# (no solo llamarlas por HTTP), podrías necesitar esto. Pruébalo sin esto primero.
+# --- Opcional: Montar el router MCP ---
 # app.include_router(mcp.router, prefix="/mcp")

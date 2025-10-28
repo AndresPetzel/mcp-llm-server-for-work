@@ -18,7 +18,7 @@ WORKDIR /usr/src/app
 #    - google-generativeai: La librería específica para Google Gemini.
 #    - anthropic: La librería específica para Anthropic Claude.
 #    (Añade aquí otras librerías si las necesitas, ej. para Manus.im o Google Cloud)
-RUN uv pip install --system "mcp[cli]" httpx uvicorn fastapi openai google-generativeai anthropic packaging pydantic
+RUN uv pip install --system "mcp[cli]" httpx uvicorn fastapi openai google-generativeai anthropic packaging pydantic google-cloud-secret-manager google-auth
 
 # 5. Copiar tu script de python (mcp_server.py) y cualquier otro archivo necesario
 #    desde tu carpeta local al directorio de trabajo dentro del contenedor.
