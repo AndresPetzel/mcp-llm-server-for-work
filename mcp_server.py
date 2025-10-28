@@ -20,8 +20,11 @@ import google.auth
 # --------------------------------------------------------------------------
 def get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> str | None:
     """Obtiene el valor de un secreto desde Google Secret Manager."""
-    if not project_id or project_id == "ensayo-de-automatizacion-ap":
-         print(f"ERROR CRÍTICO: GCP_PROJECT_ID no está configurado en el código.")
+    # --- ¡CORRECCIÓN AQUÍ! ---
+    # Comprueba si el project_id está vacío o si *todavía* es el placeholder
+    if not project_id or project_id == "PON_AQUI_TU_GCP_PROJECT_ID":
+    # --- FIN DE LA CORRECCIÓN ---
+         print(f"ERROR CRÍTICO: GCP_PROJECT_ID ('{project_id}') no parece estar configurado correctamente en el código.")
          return None
     try:
         client = secretmanager.SecretManagerServiceClient()
@@ -33,10 +36,10 @@ def get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> s
               "Verifica rol 'Secret Manager Secret Accessor'.")
         return None
     except Exception as e:
-        print(f"ERROR: No se pudo obtener el secreto '{secret_id}': {e}")
+        print(f"ERROR: No se pudo obtener el secreto '{secret_id}' del proyecto '{project_id}': {e}")
         return None
 
-# --- ¡¡¡IMPORTANTE!!! REEMPLAZA ESTO CON TU PROJECT ID ---
+# --- TU PROJECT ID (¡YA LO PUSISTE CORRECTAMENTE!) ---
 GCP_PROJECT_ID = "ensayo-de-automatizacion-ap"
 
 
@@ -54,37 +57,37 @@ mcp = FastMCP("llm-unified-tools")
 # --------------------------------------------------------------------------
 providers_config = {
     "groq": {
-        "api_key": get_secret(GCP_PROJECT_ID, "GROQ_API_KEY"), # Reemplaza ID
+        "api_key": get_secret(GCP_PROJECT_ID, "GROQ_API_KEY"), # Asegúrate que este sea tu ID de secreto real
         "base_url": "https://api.groq.com/openai/v1",
     },
     "openrouter": {
-        "api_key": get_secret(GCP_PROJECT_ID, "OPENROUTER_API_KEY"), # Reemplaza ID
+        "api_key": get_secret(GCP_PROJECT_ID, "OPENROUTER_API_KEY"), # Asegúrate que este sea tu ID de secreto real
         "base_url": "https://openrouter.ai/api/v1",
     },
     "gemini": {
-        "api_key": get_secret(GCP_PROJECT_ID, "GEMINI_API_KEY"), # Reemplaza ID
+        "api_key": get_secret(GCP_PROJECT_ID, "GEMINI_API_KEY"), # Asegúrate que este sea tu ID de secreto real
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/", # OJO: URL por verificar
     },
     "openai": {
-        "api_key": get_secret(GCP_PROJECT_ID, "OPENAI_API_KEY"), # Reemplaza ID
+        "api_key": get_secret(GCP_PROJECT_ID, "OPENAI_API_KEY"), # Asegúrate que este sea tu ID de secreto real
         "base_url": None,
     },
     "perplexity": {
-        "api_key": get_secret(GCP_PROJECT_ID, "PERPLEXITY_API_KEY"), # ¡¡¡Crea y reemplaza ID!!!
+        "api_key": get_secret(GCP_PROJECT_ID, "PERPLEXITY_API_KEY"), # Asegúrate que este sea tu ID de secreto real
         "base_url": "https://api.perplexity.ai",
     }
     # Añade aquí otros proveedores
 }
 
 # --- Configuración Específica (Opcional) ---
-# (Se mantiene igual, obteniendo claves con get_secret si es necesario)
-gemini_api_key_direct = get_secret(GCP_PROJECT_ID, "GEMINI_API_KEY")
+gemini_api_key_direct = get_secret(GCP_PROJECT_ID, "GEMINI_API_KEY") # Usa el mismo ID
 if gemini_api_key_direct:
     try: genai.configure(api_key=gemini_api_key_direct)
     except Exception as e: print(f"Error al configurar genai: {e}")
 else: pass
 
-anthropic_api_key_direct = get_secret(GCP_PROJECT_ID, "anthropic-api-key-secret-id") # Necesitarás crear este secreto
+# Necesitarás crear un secreto llamado 'anthropic-api-key-secret-id' o cambiar el nombre aquí
+anthropic_api_key_direct = get_secret(GCP_PROJECT_ID, "anthropic-api-key-secret-id")
 if anthropic_api_key_direct:
     try: anthropic_client_direct = AsyncAnthropic(api_key=anthropic_api_key_direct)
     except Exception as e: print(f"Error al configurar Anthropic: {e}"); anthropic_client_direct = None
@@ -108,7 +111,8 @@ async def call_llm(
     if provider_name not in providers_config or not providers_config[provider_name].get("api_key"):
         api_key_value = providers_config.get(provider_name, {}).get("api_key")
         if not api_key_value:
-             print(f"ADVERTENCIA INTERNA: API Key para '{provider_name}' no fue obtenida o no configurada.")
+             # Este print es útil para depurar si falla get_secret()
+             print(f"ADVERTENCIA INTERNA: API Key para '{provider_name}' no fue obtenida de Secret Manager o no está configurada en providers_config.")
              raise ValueError(f"Proveedor '{provider_name}' no válido o API key no configurada/accesible.")
 
     selected_provider = providers_config[provider_name]
@@ -117,12 +121,11 @@ async def call_llm(
 
     # Determinar modelo
     if model_name == "default":
-        # Establecer modelos por defecto
         if provider_name == "groq": model_to_use = "llama-3.1-8b-instant"
         elif provider_name == "openrouter": model_to_use = "mistralai/mistral-7b-instruct:free"
         elif provider_name == "gemini": model_to_use = "gemini-pro"
         elif provider_name == "openai": model_to_use = "gpt-4o-mini"
-        elif provider_name == "perplexity": model_to_use = "llama-3.1-sonar-small-128k-online" # <-- ¡MODELO ACTUALIZADO AQUÍ!
+        elif provider_name == "perplexity": model_to_use = "llama-3.1-sonar-small-128k-online"
         else: raise ValueError(f"Modelo por defecto no definido para '{provider_name}'.")
     else:
         model_to_use = model_name
@@ -145,7 +148,6 @@ async def call_llm(
             return f"Error: No se recibió respuesta válida de {provider_name}."
     except Exception as e:
         print(f"Error detallado llamando a {provider_name} ({model_to_use}): {e}")
-        # Intenta dar un mensaje de error más específico si es posible
         error_detail = str(e)
         if "authentication" in error_detail.lower():
              raise HTTPException(status_code=401, detail=f"Error de autenticación con {provider_name}. Verifica la API Key.")
@@ -164,7 +166,7 @@ class LLMRequestPayload(BaseModel):
     system_message: str = "Eres un asistente útil."
     temperature: float = 0.7
 
-# --- Endpoint HTTP (sin cambios en la lógica, solo usa la función actualizada) ---
+# --- Endpoint HTTP (sin cambios) ---
 @app.post("/tools/call_llm", summary="Llamar a un LLM genérico")
 async def http_call_llm(payload: LLMRequestPayload):
     """Endpoint HTTP genérico para llamar a LLMs (API compatible OpenAI)."""
@@ -184,6 +186,7 @@ async def http_call_llm(payload: LLMRequestPayload):
     except Exception as e:
         print(f"Error inesperado en http_call_llm: {e}")
         raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
+
 
 # --- Ruta Raíz (sin cambios) ---
 @app.get("/")
