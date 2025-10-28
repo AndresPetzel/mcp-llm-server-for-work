@@ -20,7 +20,7 @@ import google.auth
 # --------------------------------------------------------------------------
 def get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> str | None:
     """Obtiene el valor de un secreto desde Google Secret Manager."""
-    if not project_id or project_id == "PON_AQUI_TU_GCP_PROJECT_ID":
+    if not project_id or project_id == "ensayo-de-automatizacion-ap":
          print(f"ERROR CRÍTICO: GCP_PROJECT_ID no está configurado en el código.")
          return None
     try:
@@ -37,7 +37,7 @@ def get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> s
         return None
 
 # --- ¡¡¡IMPORTANTE!!! REEMPLAZA ESTO CON TU PROJECT ID ---
-GCP_PROJECT_ID = "PON_AQUI_TU_GCP_PROJECT_ID"
+GCP_PROJECT_ID = "ensayo-de-automatizacion-ap"
 
 
 # --------------------------------------------------------------------------
